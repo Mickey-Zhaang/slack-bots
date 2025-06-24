@@ -1,34 +1,47 @@
-'''
-placeholder
-'''
+"""
+The Main App factory (Slack in main thread; Discord in its own thread)
+"""
 import os
-from flask import Flask, request
-import requests
+from dotenv import load_dotenv
+from slack_bolt import App
+from slack_bolt.adapter.socket_mode import SocketModeHandler
+from keep_alive import keep_alive
 
-app = Flask(__name__)
+load_dotenv()
 
-SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
+# 1) SLACK
+slack_bot = App(token=os.environ["SLACK_BOT_TOKEN"])
 
-@app.route("/slack/events", methods=["POST"])
-def slack_events():
-    '''
-    placeholder
-    '''
-    data = request.json
-    if "challenge" in data:
-        return data["challenge"]  # For Slack verification
+@slack_bot.event("app_mention")
+def on_message_slack(body, say):
+    """
+    [Slack]
+    
+    When the bot is mentioned, strip off the mention tag and pass
+    the clean text to `chatting(...)`, then reply with its response.
+    """
 
-    if "event" in data:
-        event = data["event"]
-        if event.get("type") == "app_mention":
-            user = event["user"]
-            channel = event["channel"]
-            message = f"Hello <@{user}>! 👋"
+    event = body["event"]
+    full_text = event["text"]
+    bot_id = body["authorizations"][0]["user_id"]
 
-            requests.post("https://slack.com/api/chat.postMessage", {
-                "token": SLACK_BOT_TOKEN,
-                "channel": channel,
-                "text": message
-            }, headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"})
+    if bot_id in full_text:
+        response = 'Hey'
 
-    return "", 200
+        # the bot returns the response from the LLM
+        say(response)
+
+def start_slack_socket_mode():
+    """
+    [Slack] this must run in the main thread (so signal handlers can be registered).
+    """
+    # Check documentation for Slack's Socket Mode -- https://api.slack.com/apis/socket-mode
+    handler = SocketModeHandler(slack_bot, os.environ["SLACK_APP_TOKEN"])
+    handler.start()
+
+
+
+if __name__ == "__main__":
+    keep_alive()
+
+    start_slack_socket_mode()
